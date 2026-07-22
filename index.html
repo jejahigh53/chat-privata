@@ -3,34 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Globale</title>
+  <title>Chat Privata</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; }
     #login-box, #chat-box { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 90%; max-width: 450px; }
     #chat-box { display: none; height: 80vh; flex-direction: column; }
     h2 { margin-top: 0; color: #1c1e21; }
+    .input-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 15px; }
     #messages { flex: 1; overflow-y: auto; list-style: none; padding: 10px; margin: 0 0 15px 0; border: 1px solid #e4e6eb; border-radius: 8px; background: #fafafa; }
     #messages li { margin-bottom: 10px; word-break: break-word; }
     .input-area { display: flex; gap: 8px; }
-    input { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; outline: none; }
+    input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; outline: none; width: 100%; }
     input:focus { border-color: #0084ff; }
-    button { padding: 12px 18px; background: #0084ff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+    button { padding: 12px 18px; background: #0084ff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; width: 100%; }
+    .input-area button { width: auto; }
     button:hover { background: #006bce; }
+    #error-msg { color: #d93025; font-size: 14px; margin-top: -5px; display: none; }
   </style>
 </head>
 <body>
 
+  <!-- Schermata di Accesso -->
   <div id="login-box">
-    <h2>Scegli un Nickname</h2>
-    <div class="input-area">
-      <input type="text" id="nickname-input" placeholder="Es. Marco" onkeypress="if(event.key==='Enter') enterChat()">
+    <h2>Accesso Chat Privata</h2>
+    <div class="input-group">
+      <input type="text" id="nickname-input" placeholder="Il tuo Nickname">
+      <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="if(event.key==='Enter') enterChat()">
+      <div id="error-msg">Password errata! Riprova.</div>
       <button onclick="enterChat()">Entra</button>
     </div>
   </div>
 
+  <!-- Finestra Chat -->
   <div id="chat-box">
-    <h2>Chat Stanza Pubblica</h2>
+    <h2>Stanza Privata</h2>
     <ul id="messages"></ul>
     <div class="input-area">
       <input type="text" id="message-input" placeholder="Scrivi un messaggio..." onkeypress="if(event.key==='Enter') sendMessage()">
@@ -44,14 +51,31 @@
     let myNickname = '';
 
     function enterChat() {
-      const input = document.getElementById('nickname-input');
-      if (input.value.trim() !== '') {
-        myNickname = input.value.trim();
-        socket.emit('join', myNickname);
-        document.getElementById('login-box').style.display = 'none';
-        document.getElementById('chat-box').style.display = 'flex';
+      const nickname = document.getElementById('nickname-input').value.trim();
+      const password = document.getElementById('password-input').value.trim();
+      const errorMsg = document.getElementById('error-msg');
+
+      if (!nickname) {
+        alert('Inserisci un nickname!');
+        return;
       }
+
+      // Invia la richiesta di accesso al server
+      socket.emit('join', { nickname, password });
     }
+
+    // Risposta dal server se l'accesso è riuscito
+    socket.on('login_success', (nickname) => {
+      myNickname = nickname;
+      document.getElementById('login-box').style.display = 'none';
+      document.getElementById('chat-box').style.display = 'flex';
+    });
+
+    // Risposta dal server se la password è errata
+    socket.on('login_error', (msg) => {
+      const errorMsg = document.getElementById('error-msg');
+      errorMsg.style.display = 'block';
+    });
 
     function sendMessage() {
       const input = document.getElementById('message-input');
