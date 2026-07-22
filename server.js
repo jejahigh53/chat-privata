@@ -9,8 +9,8 @@ const io = new Server(server, {
   maxHttpBufferSize: 3e7 // 30 MB
 });
 
-// Recupera la password dalle variabili d'ambiente di Render (fallback '25062' se non impostata)
-const CHAT_PASSWORD = process.env.CHAT_PASSWORD || '25062';
+// Recupera la password dalle variabili d'ambiente di Render
+const CHAT_PASSWORD = process.env.CHAT_PASSWORD;
 const ROOM_NAME = 'stanza_segreta';
 
 app.use(express.static(__dirname));
