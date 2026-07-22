@@ -2,11 +2,18 @@ const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
+const path = require('path');
 
-app.use(express.static('public')); // O la tua cartella con index.html
+const PASSWORD_CORRETTA = "la_tua_password"; // Inserisci la tua password
+const connectedUsers = {};
 
-const PASSWORD_CORRETTA = "la_tua_password"; // Modifica con la tua password
-const connectedUsers = {}; // Salviamo socket.id -> nickname
+// Invece di express.static('public'), serviamo direttamente index.html dalla radice
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Se hai altri file statici nella radice (es. CSS o immagini locali), abilita questo:
+app.use(express.static(__dirname));
 
 io.on('connection', (socket) => {
 
@@ -16,19 +23,17 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Salviamo l'utente connesso
     socket.nickname = nickname;
     connectedUsers[socket.id] = nickname;
 
     socket.emit('login_success', nickname);
 
-    // Notifica di sistema a tutti
     io.emit('chat message', { 
       type: 'system', 
       text: `${nickname} si è unito alla chat.` 
     });
 
-    // Invia la lista aggiornata di tutti gli utenti online
+    // Invia la lista utenti aggiornata a tutti
     io.emit('update_users', Object.values(connectedUsers));
   });
 
@@ -45,18 +50,18 @@ io.on('connection', (socket) => {
     if (socket.nickname) {
       delete connectedUsers[socket.id];
 
-      // Notifica di disconnessione
       io.emit('chat message', { 
         type: 'system', 
         text: `${socket.nickname} ha lasciato la chat.` 
       });
 
-      // Aggiorna la lista utenti per tutti i rimasti
       io.emit('update_users', Object.values(connectedUsers));
     }
   });
 });
 
-http.listen(3000, () => {
-  console.log('Server avviato sulla porta 3000');
+// Render e molti altri hosting passano la porta tramite variabile d'ambiente
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => {
+  console.log(`Server avviato sulla porta ${PORT}`);
 });
