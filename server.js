@@ -9,7 +9,8 @@ const io = new Server(server, {
   maxHttpBufferSize: 3e7 // 30 MB
 });
 
-const CHAT_PASSWORD = '25062';
+// Recupera la password dalle variabili d'ambiente di Render (fallback '25062' se non impostata)
+const CHAT_PASSWORD = process.env.CHAT_PASSWORD || '25062';
 const ROOM_NAME = 'stanza_segreta';
 
 app.use(express.static(__dirname));
@@ -18,20 +19,19 @@ app.use(express.static('public'));
 io.on('connection', (socket) => {
   let userNickname = '';
   let isAuthenticated = false;
+  let lastMessageTime = 0; // Per il Rate Limiting
 
   socket.on('join', (data) => {
-    if (data.password === CHAT_PASSWORD) {
+    if (data && data.password === CHAT_PASSWORD) {
       isAuthenticated = true;
-      userNickname = data.nickname || 'Anonimo';
+      userNickname = (data.nickname || 'Anonimo').trim().substring(0, 20); // Taglia nickname troppo lunghi
       
-      // BLINDASTERIA: L'utente viene inserito nella stanza riservata SOLO se la password è corretta
       socket.join(ROOM_NAME);
-
       socket.emit('login_success', userNickname);
 
-      // Invia il messaggio SOLO a chi si trova dentro la stanza
       io.to(ROOM_NAME).emit('chat message', {
         user: 'Sistema',
+        type: 'system',
         text: `${userNickname} si è unito alla chat.`
       });
     } else {
@@ -40,14 +40,28 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat message', (msgData) => {
-    // Se l'utente non è autenticato o non è nella stanza, il messaggio viene ignorato
     if (!isAuthenticated || !userNickname) return;
-    
-    // Invia il messaggio ESCLUSIVAMENTE ai membri della stanza
+
+    // Anti-Spam (Rate Limit): Almeno 500ms tra un messaggio e l'altro
+    const now = Date.now();
+    if (now - lastMessageTime < 500) {
+      return; 
+    }
+    lastMessageTime = now;
+
+    if (!msgData || !msgData.content) return;
+
+    // Se è un messaggio di testo, limita la lunghezza massima a 1000 caratteri
+    let content = msgData.content;
+    if (msgData.type === 'text') {
+      content = content.trim().substring(0, 1000);
+      if (content.length === 0) return;
+    }
+
     io.to(ROOM_NAME).emit('chat message', {
       user: userNickname,
       type: msgData.type,
-      content: msgData.content
+      content: content
     });
   });
 
@@ -55,6 +69,7 @@ io.on('connection', (socket) => {
     if (isAuthenticated && userNickname) {
       io.to(ROOM_NAME).emit('chat message', {
         user: 'Sistema',
+        type: 'system',
         text: `${userNickname} ha lasciato la chat.`
       });
     }
