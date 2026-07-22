@@ -5,12 +5,12 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Limite aumentato a 30 MB sul server
 const io = new Server(server, {
   maxHttpBufferSize: 3e7 // 30 MB
 });
 
 const CHAT_PASSWORD = '25062';
+const ROOM_NAME = 'stanza_segreta';
 
 app.use(express.static(__dirname));
 app.use(express.static('public'));
@@ -24,9 +24,13 @@ io.on('connection', (socket) => {
       isAuthenticated = true;
       userNickname = data.nickname || 'Anonimo';
       
+      // BLINDASTERIA: L'utente viene inserito nella stanza riservata SOLO se la password è corretta
+      socket.join(ROOM_NAME);
+
       socket.emit('login_success', userNickname);
 
-      io.emit('chat message', {
+      // Invia il messaggio SOLO a chi si trova dentro la stanza
+      io.to(ROOM_NAME).emit('chat message', {
         user: 'Sistema',
         text: `${userNickname} si è unito alla chat.`
       });
@@ -36,9 +40,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat message', (msgData) => {
+    // Se l'utente non è autenticato o non è nella stanza, il messaggio viene ignorato
     if (!isAuthenticated || !userNickname) return;
     
-    io.emit('chat message', {
+    // Invia il messaggio ESCLUSIVAMENTE ai membri della stanza
+    io.to(ROOM_NAME).emit('chat message', {
       user: userNickname,
       type: msgData.type,
       content: msgData.content
@@ -47,7 +53,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (isAuthenticated && userNickname) {
-      io.emit('chat message', {
+      io.to(ROOM_NAME).emit('chat message', {
         user: 'Sistema',
         text: `${userNickname} ha lasciato la chat.`
       });
