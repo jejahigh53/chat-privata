@@ -123,21 +123,17 @@
         li.textContent = data.text;
       } else if (data.type === 'image') {
         const safeUser = escapeHTML(data.user);
-        li.innerHTML = `<strong>${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
+        // Verifica che il contenuto sia un'immagine Base64 valida
+        if (data.content && data.content.startsWith('data:image/')) {
+          li.innerHTML = `<strong>${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
+        } else {
+          li.textContent = `${data.user} ha inviato un allegato non valido.`;
+        }
       } else {
         const safeUser = escapeHTML(data.user);
         const safeContent = escapeHTML(data.content);
         li.innerHTML = `<strong>${safeUser}:</strong> ${safeContent}`;
       }
-      } else if (data.type === 'image') {
-  const safeUser = escapeHTML(data.user);
-  // Verifica che il contenuto sia effettivamente un'immagine Base64 valida
-  if (data.content && data.content.startsWith('data:image/')) {
-    li.innerHTML = `<strong>${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
-  } else {
-    li.textContent = `${data.user} ha inviato un allegato non valido.`;
-  }
-}
 
       document.getElementById('messages').appendChild(li);
       document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
