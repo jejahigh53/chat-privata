@@ -56,6 +56,16 @@
     const socket = io();
     let myNickname = '';
 
+    // Oscura la chat se la finestra perde il focus
+window.addEventListener('blur', () => {
+  document.body.style.filter = 'blur(15px)';
+});
+
+// Ripristina la visibilità quando l'utente torna sulla pagina
+window.addEventListener('focus', () => {
+  document.body.style.filter = 'none';
+});
+
     function handleLoginKey(e) {
       if (e.key === 'Enter') {
         enterChat();
