@@ -58,15 +58,16 @@
       }
     }
 
+    /* HEADER E LISTA UTENTI */
     .chat-header {
       text-align: center;
-      padding: 6px 0 14px 0;
-      margin-bottom: 10px;
+      padding: 6px 0 10px 0;
+      margin-bottom: 8px;
       border-bottom: 1px solid #e8f0ec;
     }
 
     .chat-title { 
-      margin: 0; 
+      margin: 0 0 8px 0; 
       color: #1a3c34; 
       font-size: clamp(1rem, 4vw, 1.25rem);
       font-weight: 700;
@@ -89,6 +90,45 @@
       font-size: 0.9em;
       display: inline-block;
       line-height: 1;
+    }
+
+    /* BARRA UTENTI ONLINE */
+    .online-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 4px 0;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      font-size: 13px;
+    }
+
+    .online-label {
+      font-weight: 600;
+      color: #2d5a4c;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .online-indicator {
+      width: 8px;
+      height: 8px;
+      background-color: #2e7d32;
+      border-radius: 50%;
+      display: inline-block;
+      box-shadow: 0 0 6px rgba(46, 125, 50, 0.6);
+    }
+
+    .user-badge {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 12px;
+      display: inline-block;
+      flex-shrink: 0;
     }
 
     .input-group { 
@@ -119,7 +159,6 @@
       word-break: break-word; 
       font-size: 15px;
       line-height: 1.4;
-      transition: transform 0.1s ease;
     }
 
     .chat-img { 
@@ -217,8 +256,15 @@
         <span class="brand">made by JeJa</span>
         <span class="badge">🙈</span>
       </h2>
+      <!-- Lista utenti connessi -->
+      <div class="online-container">
+        <span class="online-label"><span class="online-indicator"></span> Online (<span id="user-count">0</span>):</span>
+        <div id="user-list" style="display: flex; gap: 6px;"></div>
+      </div>
     </div>
+
     <ul id="messages"></ul>
+
     <div class="input-area">
       <label class="btn-file" title="Invia Immagine">
         📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="sendImage(this)">
@@ -239,22 +285,15 @@
       );
     }
 
-    // Genera un colore HSL dinamico ma deterministico in base al Nickname
     function getUserColor(nickname) {
       let hash = 0;
       for (let i = 0; i < nickname.length; i++) {
         hash = nickname.charCodeAt(i) + ((hash << 5) - hash);
       }
-      
-      // Mantiene la tonalità tra 0 e 360°
       const hue = Math.abs(hash % 360);
-
       return {
-        // Colore scuro per il testo del nome (luminosità 25%)
         text: `hsl(${hue}, 65%, 25%)`,
-        // Colore chiaro e delicato per lo sfondo del fumetto (luminosità 94%)
         background: `hsl(${hue}, 50%, 94%)`,
-        // Bordo d'accento laterale (luminosità 45%)
         border: `hsl(${hue}, 60%, 45%)`
       };
     }
@@ -284,6 +323,27 @@
 
     socket.on('login_error', () => {
       document.getElementById('error-msg').style.display = 'block';
+    });
+
+    // AGGIORNAMENTO LISTA UTENTI IN LIVE
+    socket.on('update_users', (users) => {
+      const userListEl = document.getElementById('user-list');
+      const userCountEl = document.getElementById('user-count');
+      
+      userListEl.innerHTML = '';
+      userCountEl.textContent = users.length;
+
+      users.forEach(user => {
+        const colors = getUserColor(user);
+        const badge = document.createElement('span');
+        badge.className = 'user-badge';
+        badge.style.backgroundColor = colors.background;
+        badge.style.color = colors.text;
+        badge.style.border = `1px solid ${colors.border}`;
+        badge.textContent = user === myNickname ? `${user} (tu)` : user;
+        
+        userListEl.appendChild(badge);
+      });
     });
 
     function sendMessage() {
@@ -328,10 +388,7 @@
         li.style.boxShadow = 'none';
         li.textContent = data.text;
       } else {
-        // Ottiene la combinazione cromatica unica per l'utente
         const userColors = getUserColor(data.user);
-        
-        // Applica i colori al fumetto del messaggio
         li.style.backgroundColor = userColors.background;
         li.style.borderLeft = `4px solid ${userColors.border}`;
 
