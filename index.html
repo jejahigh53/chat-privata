@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Criptata</title>
+  <title>Chat Privata</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background: #f0f2f5; display: flex; justify-content: center; align-items: center; height: 100vh; }
@@ -28,9 +28,9 @@
 
   <!-- Accesso -->
   <div id="login-box">
-    <h2>Login</h2>
+    <h2>Accesso Chat Privata</h2>
     <div class="input-group">
-      <input type="text" id="nickname-input" placeholder="Il tuo Nickname" onkeypress="handleLoginKey(event)">
+      <input type="text" id="nickname-input" placeholder="Il tuo Nickname" maxlength="20" onkeypress="handleLoginKey(event)">
       <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="handleLoginKey(event)">
       <div id="error-msg">Password errata! Riprova.</div>
       <button onclick="enterChat()" style="width: 100%;">Entra</button>
@@ -42,11 +42,10 @@
     <h2>Stanza Privata</h2>
     <ul id="messages"></ul>
     <div class="input-area">
-      <!-- Pulsante allegato immagine -->
       <label class="btn-file" title="Invia Immagine">
         📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="sendImage(this)">
       </label>
-      <input type="text" id="message-input" placeholder="Scrivi un messaggio..." onkeypress="if(event.key==='Enter') sendMessage()">
+      <input type="text" id="message-input" placeholder="Scrivi un messaggio..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
       <button onclick="sendMessage()">Invia</button>
     </div>
   </div>
@@ -56,37 +55,26 @@
     const socket = io();
     let myNickname = '';
 
-    // Oscura la chat se la finestra perde il focus
-window.addEventListener('blur', () => {
-  document.body.style.filter = 'blur(15px)';
-});
-
-// Ripristina la visibilità quando l'utente torna sulla pagina
-window.addEventListener('focus', () => {
-  document.body.style.filter = 'none';
-});
+    // Funzione per pulire il testo ed evitare attacchi XSS
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
 
     function handleLoginKey(e) {
-      if (e.key === 'Enter') {
-        enterChat();
-      }
+      if (e.key === 'Enter') enterChat();
     }
 
     function enterChat() {
-      const nicknameInput = document.getElementById('nickname-input');
-      const passwordInput = document.getElementById('password-input');
-      const errorMsg = document.getElementById('error-msg');
-
-      const nickname = nicknameInput.value.trim();
-      const password = passwordInput.value.trim();
-
-      errorMsg.style.display = 'none';
+      const nickname = document.getElementById('nickname-input').value.trim();
+      const password = document.getElementById('password-input').value.trim();
+      document.getElementById('error-msg').style.display = 'none';
 
       if (!nickname) {
         alert('Inserisci un nickname!');
         return;
       }
-      
       socket.emit('join', { nickname, password });
     }
 
@@ -129,16 +117,17 @@ window.addEventListener('focus', () => {
     socket.on('chat message', (data) => {
       const li = document.createElement('li');
 
-      if (data.user === 'Sistema') {
+      if (data.type === 'system') {
         li.style.color = '#888';
         li.style.fontStyle = 'italic';
         li.textContent = data.text;
+      } else if (data.type === 'image') {
+        const safeUser = escapeHTML(data.user);
+        li.innerHTML = `<strong>${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
       } else {
-        if (data.type === 'image') {
-          li.innerHTML = `<strong>${data.user}:</strong><br><img src="${data.content}" class="chat-img" />`;
-        } else {
-          li.innerHTML = `<strong>${data.user}:</strong> ${data.content}`;
-        }
+        const safeUser = escapeHTML(data.user);
+        const safeContent = escapeHTML(data.content);
+        li.innerHTML = `<strong>${safeUser}:</strong> ${safeContent}`;
       }
 
       document.getElementById('messages').appendChild(li);
