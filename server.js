@@ -5,9 +5,9 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Aumentiamo la dimensione massima del payload a 10MB per supportare l'invio delle foto
+// Limite aumentato a 30 MB sul server
 const io = new Server(server, {
-  maxHttpBufferSize: 1e7 // 10 MB
+  maxHttpBufferSize: 3e7 // 30 MB
 });
 
 const CHAT_PASSWORD = '25062';
@@ -38,7 +38,6 @@ io.on('connection', (socket) => {
   socket.on('chat message', (msgData) => {
     if (!isAuthenticated || !userNickname) return;
     
-    // Invia sia il messaggio di testo che l'eventuale immagine a tutti
     io.emit('chat message', {
       user: userNickname,
       type: msgData.type,
