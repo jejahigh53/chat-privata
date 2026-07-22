@@ -4,12 +4,14 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
 
-// Password di accesso
+// Aumentiamo la dimensione massima del payload a 10MB per supportare l'invio delle foto
+const io = new Server(server, {
+  maxHttpBufferSize: 1e7 // 10 MB
+});
+
 const CHAT_PASSWORD = '25062';
 
-// Serve i file statici dalla cartella principale o 'public'
 app.use(express.static(__dirname));
 app.use(express.static('public'));
 
@@ -17,37 +19,33 @@ io.on('connection', (socket) => {
   let userNickname = '';
   let isAuthenticated = false;
 
-  // Gestione tentativo di accesso
   socket.on('join', (data) => {
     if (data.password === CHAT_PASSWORD) {
       isAuthenticated = true;
       userNickname = data.nickname || 'Anonimo';
       
-      // Conferma l'accesso all'utente
       socket.emit('login_success', userNickname);
 
-      // Avvisa gli altri che è entrato
       io.emit('chat message', {
         user: 'Sistema',
         text: `${userNickname} si è unito alla chat.`
       });
     } else {
-      // Notifica password errata
       socket.emit('login_error', 'Password errata!');
     }
   });
 
-  // Gestione invio messaggi (solo se autenticato)
-  socket.on('chat message', (msgText) => {
+  socket.on('chat message', (msgData) => {
     if (!isAuthenticated || !userNickname) return;
     
+    // Invia sia il messaggio di testo che l'eventuale immagine a tutti
     io.emit('chat message', {
       user: userNickname,
-      text: msgText
+      type: msgData.type,
+      content: msgData.content
     });
   });
 
-  // Disconnessione
   socket.on('disconnect', () => {
     if (isAuthenticated && userNickname) {
       io.emit('chat message', {
