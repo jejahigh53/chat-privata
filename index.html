@@ -58,7 +58,6 @@
       }
     }
 
-    /* HEADER E TITOLO STILIZZATO */
     .chat-header {
       text-align: center;
       padding: 6px 0 14px 0;
@@ -69,7 +68,7 @@
     .chat-title { 
       margin: 0; 
       color: #1a3c34; 
-      font-size: clamp(1rem, 4vw, 1.25rem); /* Dimensione fluida per mobile e desktop */
+      font-size: clamp(1rem, 4vw, 1.25rem);
       font-weight: 700;
       letter-spacing: -0.3px;
       display: inline-flex;
@@ -116,11 +115,11 @@
       padding: 10px 12px;
       border-radius: 10px;
       background: #ffffff;
-      border-left: 4px solid #4a7c59;
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
       word-break: break-word; 
       font-size: 15px;
       line-height: 1.4;
+      transition: transform 0.1s ease;
     }
 
     .chat-img { 
@@ -240,6 +239,26 @@
       );
     }
 
+    // Genera un colore HSL dinamico ma deterministico in base al Nickname
+    function getUserColor(nickname) {
+      let hash = 0;
+      for (let i = 0; i < nickname.length; i++) {
+        hash = nickname.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      
+      // Mantiene la tonalità tra 0 e 360°
+      const hue = Math.abs(hash % 360);
+
+      return {
+        // Colore scuro per il testo del nome (luminosità 25%)
+        text: `hsl(${hue}, 65%, 25%)`,
+        // Colore chiaro e delicato per lo sfondo del fumetto (luminosità 94%)
+        background: `hsl(${hue}, 50%, 94%)`,
+        // Bordo d'accento laterale (luminosità 45%)
+        border: `hsl(${hue}, 60%, 45%)`
+      };
+    }
+
     function handleLoginKey(e) {
       if (e.key === 'Enter') enterChat();
     }
@@ -308,17 +327,26 @@
         li.style.background = 'transparent';
         li.style.boxShadow = 'none';
         li.textContent = data.text;
-      } else if (data.type === 'image') {
-        const safeUser = escapeHTML(data.user);
-        if (data.content && data.content.startsWith('data:image/')) {
-          li.innerHTML = `<strong style="color: #1a3c34;">${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
-        } else {
-          li.textContent = `${data.user} ha inviato un allegato non valido.`;
-        }
       } else {
+        // Ottiene la combinazione cromatica unica per l'utente
+        const userColors = getUserColor(data.user);
+        
+        // Applica i colori al fumetto del messaggio
+        li.style.backgroundColor = userColors.background;
+        li.style.borderLeft = `4px solid ${userColors.border}`;
+
         const safeUser = escapeHTML(data.user);
-        const safeContent = escapeHTML(data.content);
-        li.innerHTML = `<strong style="color: #1a3c34;">${safeUser}:</strong> ${safeContent}`;
+
+        if (data.type === 'image') {
+          if (data.content && data.content.startsWith('data:image/')) {
+            li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
+          } else {
+            li.textContent = `${data.user} ha inviato un allegato non valido.`;
+          }
+        } else {
+          const safeContent = escapeHTML(data.content);
+          li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong> ${safeContent}`;
+        }
       }
 
       document.getElementById('messages').appendChild(li);
