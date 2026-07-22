@@ -21,7 +21,7 @@
     .btn-file { background: #e4e6eb; color: #333; padding: 12px 14px; border-radius: 6px; cursor: pointer; font-size: 16px; }
     .btn-file:hover { background: #d8dadf; }
     button:hover { background: #006bce; }
-    #error-msg { color: #d93025; font-size: 14px; margin-top: -5px; display: none; }
+    #error-msg { color: #d93025; font-size: 14px; display: none; }
   </style>
 </head>
 <body>
@@ -30,8 +30,8 @@
   <div id="login-box">
     <h2>Accesso Chat Privata</h2>
     <div class="input-group">
-      <input type="text" id="nickname-input" placeholder="Il tuo Nickname">
-      <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="if(event.key==='Enter') enterChat()">
+      <input type="text" id="nickname-input" placeholder="Il tuo Nickname" onkeypress="handleLoginKey(event)">
+      <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="handleLoginKey(event)">
       <div id="error-msg">Password errata! Riprova.</div>
       <button onclick="enterChat()" style="width: 100%;">Entra</button>
     </div>
@@ -56,14 +56,27 @@
     const socket = io();
     let myNickname = '';
 
+    function handleLoginKey(e) {
+      if (e.key === 'Enter') {
+        enterChat();
+      }
+    }
+
     function enterChat() {
-      const nickname = document.getElementById('nickname-input').value.trim();
-      const password = document.getElementById('password-input').value.trim();
+      const nicknameInput = document.getElementById('nickname-input');
+      const passwordInput = document.getElementById('password-input');
+      const errorMsg = document.getElementById('error-msg');
+
+      const nickname = nicknameInput.value.trim();
+      const password = passwordInput.value.trim();
+
+      errorMsg.style.display = 'none';
 
       if (!nickname) {
         alert('Inserisci un nickname!');
         return;
       }
+      
       socket.emit('join', { nickname, password });
     }
 
@@ -85,35 +98,24 @@
       }
     }
 
-   // Invio Immagine con limite aumentato
-function sendImage(fileInput) {
-  const file = fileInput.files[0];
-  if (!file) return;
+    function sendImage(fileInput) {
+      const file = fileInput.files[0];
+      if (!file) return;
 
-  // Limite portato a 20 MB (20 * 1024 * 1024 byte)
-  if (file.size > 20 * 1024 * 1024) {
-    alert('L\'immagine è troppo grande! Scegli un file sotto i 20MB.');
-    fileInput.value = '';
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = function(evt) {
-    socket.emit('chat message', { type: 'image', content: evt.target.result });
-    fileInput.value = ''; // Reset dell'input
-  };
-  reader.readAsDataURL(file);
-}
+      if (file.size > 20 * 1024 * 1024) {
+        alert('L\'immagine è troppo grande! Scegli un file sotto i 20MB.');
+        fileInput.value = '';
+        return;
+      }
 
       const reader = new FileReader();
       reader.onload = function(evt) {
         socket.emit('chat message', { type: 'image', content: evt.target.result });
-        fileInput.value = ''; // Reset dell'input
+        fileInput.value = '';
       };
       reader.readAsDataURL(file);
     }
 
-    // Ricezione Messaggi e Immagini
     socket.on('chat message', (data) => {
       const li = document.createElement('li');
 
