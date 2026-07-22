@@ -283,8 +283,12 @@
     </div>
     <div class="input-group">
       <input type="text" id="nickname-input" placeholder="Il tuo Nickname" maxlength="20" onkeypress="handleLoginKey(event)">
-      <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="handleLoginKey(event)">
-      <div id="error-msg">Password errata! Riprova.</div>
+      <!-- Password A: Inviata al server per l'autenticazione -->
+      <input type="password" id="password-input" placeholder="Password d'accesso (Server)" onkeypress="handleLoginKey(event)">
+      <!-- Passphrase B: Usata SOLO nel browser per cifrare/decifrare -->
+      <input type="password" id="passphrase-input" placeholder="Passphrase Segreta (Cifratura)" onkeypress="handleLoginKey(event)">
+      
+      <div id="error-msg">Password d'accesso errata! Riprova.</div>
       <button onclick="enterChat()" style="width: 100%;">Entra</button>
     </div>
   </div>
@@ -295,7 +299,7 @@
       <h2 class="chat-title">
         <span>Chat Privata</span>
         <span class="brand">made by JeJa</span>
-        <span class="badge">🔒</span>
+        <span class="badge">🔐</span>
       </h2>
       <div class="online-container">
         <span class="online-label"><span class="online-indicator"></span> Online (<span id="user-count">0</span>):</span>
@@ -325,7 +329,7 @@
   <script>
     const socket = io();
     let myNickname = '';
-    let cryptoKey = null; // Memorizza la chiave AES derivata dalla password
+    let cryptoKey = null; // Chiave generata DALLA PASSPHRASE B
     let selectedBase64Image = null;
 
     function escapeHTML(str) {
@@ -349,18 +353,17 @@
 
     /* --- FUNZIONI CRITTOGRAFICHE (WEB CRYPTO API) --- */
 
-    // Deriva una chiave AES-GCM a 256 bit dalla password inserita
-    async function deriveKey(password) {
+    // Deriva la chiave usando la PASSPHRASE B
+    async function deriveKey(passphrase) {
       const enc = new TextEncoder();
       const keyMaterial = await window.crypto.subtle.importKey(
         "raw",
-        enc.encode(password),
+        enc.encode(passphrase),
         { name: "PBKDF2" },
         false,
         ["deriveKey"]
       );
 
-      // Usiamo un salt fisso per garantire che tutti gli utenti derivino la stessa chiave
       const salt = enc.encode("chat_privata_e2ee_salt_2026");
 
       return window.crypto.subtle.deriveKey(
@@ -377,10 +380,9 @@
       );
     }
 
-    // Cifra una stringa usando AES-GCM e restituisce { iv, ciphertext } in formato Base64
     async function encryptData(text) {
       const enc = new TextEncoder();
-      const iv = window.crypto.getRandomValues(new Uint8Array(12)); // IV casuale di 12 byte
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
       const encryptedBuffer = await window.crypto.subtle.encrypt(
         { name: "AES-GCM", iv: iv },
         cryptoKey,
@@ -393,7 +395,6 @@
       };
     }
 
-    // Decifra i dati ricevuti
     async function decryptData(encryptedObj) {
       try {
         const iv = Uint8Array.from(atob(encryptedObj.iv), c => c.charCodeAt(0));
@@ -408,7 +409,7 @@
         const dec = new TextDecoder();
         return dec.decode(decryptedBuffer);
       } catch (err) {
-        return "[Impossibile decifrare il messaggio]";
+        return "[Passphrase B errata: impossibile decifrare]";
       }
     }
 
@@ -421,16 +422,18 @@
     async function enterChat() {
       const nickname = document.getElementById('nickname-input').value.trim();
       const password = document.getElementById('password-input').value.trim();
+      const passphrase = document.getElementById('passphrase-input').value.trim();
       document.getElementById('error-msg').style.display = 'none';
 
-      if (!nickname || !password) {
-        alert('Inserisci sia nickname che password!');
+      if (!nickname || !password || !passphrase) {
+        alert('Compila tutti i campi: Nickname, Password d\'accesso e Passphrase segreta!');
         return;
       }
 
-      // Deriva la chiave crittografica prima di connettersi
-      cryptoKey = await deriveKey(password);
+      // Deriviamo la chiave di cifratura DALLA PASSPHRASE B (rimane solo nel browser)
+      cryptoKey = await deriveKey(passphrase);
 
+      // Inviamo al server SOLO la Password A per l'autenticazione
       socket.emit('join', { nickname, password });
     }
 
@@ -512,14 +515,12 @@
       const input = document.getElementById('message-input');
       const text = input.value.trim();
 
-      // Cifra ed invia la foto se selezionata
       if (selectedBase64Image) {
         const encryptedImg = await encryptData(selectedBase64Image);
         socket.emit('chat message', { type: 'image', content: encryptedImg });
         clearSelectedImage();
       }
 
-      // Cifra ed invia il testo se presente
       if (text !== '') {
         const encryptedText = await encryptData(text);
         socket.emit('chat message', { type: 'text', content: encryptedText });
@@ -550,7 +551,6 @@
         const safeUser = escapeHTML(data.user);
 
         if (data.type === 'image') {
-          // Decifriamo l'immagine ricevuta
           const decryptedBase64 = await decryptData(data.content);
           if (decryptedBase64 && decryptedBase64.startsWith('data:image/')) {
             li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><img src="${decryptedBase64}" class="chat-img" />`;
@@ -558,7 +558,6 @@
             li.textContent = `${data.user} ha inviato un allegato non decifrabile.`;
           }
         } else {
-          // Decifriamo il testo ricevuto
           const decryptedText = await decryptData(data.content);
           const safeContent = escapeHTML(decryptedText);
           li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong> ${safeContent}`;
