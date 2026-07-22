@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Chat Privata</title>
+  <title>Chat Privata E2EE</title>
   <style>
     * { 
       box-sizing: border-box; 
@@ -58,7 +58,6 @@
       }
     }
 
-    /* HEADER E LISTA UTENTI */
     .chat-header {
       text-align: center;
       padding: 6px 0 10px 0;
@@ -169,14 +168,12 @@
       object-fit: cover;
     }
 
-    /* AREA INPUT E ANTEPRIMA */
     .input-wrapper {
       display: flex;
       flex-direction: column;
       gap: 8px;
     }
 
-    /* Anteprima Immagine Prima di Inviare */
     #image-preview-container {
       display: none;
       position: relative;
@@ -298,7 +295,7 @@
       <h2 class="chat-title">
         <span>Chat Privata</span>
         <span class="brand">made by JeJa</span>
-        <span class="badge">🙈</span>
+        <span class="badge">🔒</span>
       </h2>
       <div class="online-container">
         <span class="online-label"><span class="online-indicator"></span> Online (<span id="user-count">0</span>):</span>
@@ -309,7 +306,6 @@
     <ul id="messages"></ul>
 
     <div class="input-wrapper">
-      <!-- Box anteprima immagine prima dell'invio -->
       <div id="image-preview-container">
         <img id="image-preview" src="" alt="Anteprima">
         <button id="remove-image-btn" onclick="clearSelectedImage()">✕</button>
@@ -319,7 +315,7 @@
         <label class="btn-file" title="Seleziona Immagine">
           📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleFileSelect(this)">
         </label>
-        <input type="text" id="message-input" placeholder="Scrivi un messaggio..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
+        <input type="text" id="message-input" placeholder="Scrivi un messaggio sicuro..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
         <button onclick="sendMessage()">Invia</button>
       </div>
     </div>
@@ -329,7 +325,8 @@
   <script>
     const socket = io();
     let myNickname = '';
-    let selectedBase64Image = null; // Memorizza l'immagine pronta per l'invio
+    let cryptoKey = null; // Memorizza la chiave AES derivata dalla password
+    let selectedBase64Image = null;
 
     function escapeHTML(str) {
       return str.replace(/[&<>'"]/g, 
@@ -350,19 +347,90 @@
       };
     }
 
+    /* --- FUNZIONI CRITTOGRAFICHE (WEB CRYPTO API) --- */
+
+    // Deriva una chiave AES-GCM a 256 bit dalla password inserita
+    async function deriveKey(password) {
+      const enc = new TextEncoder();
+      const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+
+      // Usiamo un salt fisso per garantire che tutti gli utenti derivino la stessa chiave
+      const salt = enc.encode("chat_privata_e2ee_salt_2026");
+
+      return window.crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    // Cifra una stringa usando AES-GCM e restituisce { iv, ciphertext } in formato Base64
+    async function encryptData(text) {
+      const enc = new TextEncoder();
+      const iv = window.crypto.getRandomValues(new Uint8Array(12)); // IV casuale di 12 byte
+      const encryptedBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        cryptoKey,
+        enc.encode(text)
+      );
+
+      return {
+        iv: btoa(String.fromCharCode(...iv)),
+        ciphertext: btoa(String.fromCharCode(...new Uint8Array(encryptedBuffer)))
+      };
+    }
+
+    // Decifra i dati ricevuti
+    async function decryptData(encryptedObj) {
+      try {
+        const iv = Uint8Array.from(atob(encryptedObj.iv), c => c.charCodeAt(0));
+        const ciphertext = Uint8Array.from(atob(encryptedObj.ciphertext), c => c.charCodeAt(0));
+
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv },
+          cryptoKey,
+          ciphertext
+        );
+
+        const dec = new TextDecoder();
+        return dec.decode(decryptedBuffer);
+      } catch (err) {
+        return "[Impossibile decifrare il messaggio]";
+      }
+    }
+
+    /* --- GESTIONE LOGIN & CHAT --- */
+
     function handleLoginKey(e) {
       if (e.key === 'Enter') enterChat();
     }
 
-    function enterChat() {
+    async function enterChat() {
       const nickname = document.getElementById('nickname-input').value.trim();
       const password = document.getElementById('password-input').value.trim();
       document.getElementById('error-msg').style.display = 'none';
 
-      if (!nickname) {
-        alert('Inserisci un nickname!');
+      if (!nickname || !password) {
+        alert('Inserisci sia nickname che password!');
         return;
       }
+
+      // Deriva la chiave crittografica prima di connettersi
+      cryptoKey = await deriveKey(password);
+
       socket.emit('join', { nickname, password });
     }
 
@@ -397,7 +465,6 @@
       });
     });
 
-    // Gestione della selezione immagine + Compressione per iOS
     function handleFileSelect(fileInput) {
       const file = fileInput.files[0];
       if (!file) return;
@@ -406,9 +473,8 @@
       reader.onload = function(evt) {
         const img = new Image();
         img.onload = function() {
-          // Ridimensiona e comprime l'immagine per non saturare la memoria dell'iPhone
           const canvas = document.createElement('canvas');
-          const maxDim = 1200; // max larghezza/altezza
+          const maxDim = 1200;
           let width = img.width;
           let height = img.height;
 
@@ -425,10 +491,8 @@
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Convertiamo in JPEG compresso (qualità 0.7)
           selectedBase64Image = canvas.toDataURL('image/jpeg', 0.7);
 
-          // Mostra l'anteprima nell'interfaccia
           document.getElementById('image-preview').src = selectedBase64Image;
           document.getElementById('image-preview-container').style.display = 'inline-block';
         };
@@ -444,19 +508,21 @@
       document.getElementById('image-preview-container').style.display = 'none';
     }
 
-    function sendMessage() {
+    async function sendMessage() {
       const input = document.getElementById('message-input');
       const text = input.value.trim();
 
-      // Invia la foto se presente
+      // Cifra ed invia la foto se selezionata
       if (selectedBase64Image) {
-        socket.emit('chat message', { type: 'image', content: selectedBase64Image });
+        const encryptedImg = await encryptData(selectedBase64Image);
+        socket.emit('chat message', { type: 'image', content: encryptedImg });
         clearSelectedImage();
       }
 
-      // Invia il messaggio di testo se presente
+      // Cifra ed invia il testo se presente
       if (text !== '') {
-        socket.emit('chat message', { type: 'text', content: text });
+        const encryptedText = await encryptData(text);
+        socket.emit('chat message', { type: 'text', content: encryptedText });
         input.value = '';
       }
     }
@@ -466,7 +532,7 @@
       msgList.scrollTop = msgList.scrollHeight;
     }
 
-    socket.on('chat message', (data) => {
+    socket.on('chat message', async (data) => {
       const li = document.createElement('li');
 
       if (data.type === 'system') {
@@ -484,13 +550,17 @@
         const safeUser = escapeHTML(data.user);
 
         if (data.type === 'image') {
-          if (data.content && data.content.startsWith('data:image/')) {
-            li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><img src="${data.content}" class="chat-img" />`;
+          // Decifriamo l'immagine ricevuta
+          const decryptedBase64 = await decryptData(data.content);
+          if (decryptedBase64 && decryptedBase64.startsWith('data:image/')) {
+            li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><img src="${decryptedBase64}" class="chat-img" />`;
           } else {
-            li.textContent = `${data.user} ha inviato un allegato non valido.`;
+            li.textContent = `${data.user} ha inviato un allegato non decifrabile.`;
           }
         } else {
-          const safeContent = escapeHTML(data.content);
+          // Decifriamo il testo ricevuto
+          const decryptedText = await decryptData(data.content);
+          const safeContent = escapeHTML(decryptedText);
           li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong> ${safeContent}`;
         }
       }
