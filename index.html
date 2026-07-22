@@ -2,13 +2,11 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <!-- viewport-fit=cover per gestire l'area della fotocamera/notch sugli iPhone -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Chat Privata</title>
   <style>
     * { 
       box-sizing: border-box; 
-      /* Disabilita l'evidenziazione grigia al tap su iOS */
       -webkit-tap-highlight-color: transparent; 
     }
     
@@ -16,7 +14,7 @@
       height: 100%;
       margin: 0;
       padding: 0;
-      overflow: hidden; /* Evita lo scroll della pagina intera */
+      overflow: hidden; 
     }
 
     body { 
@@ -25,7 +23,6 @@
       display: flex; 
       justify-content: center; 
       align-items: center; 
-      /* dvh gestisce la barra dinamica di Safari iOS */
       min-height: 100vh;
       min-height: 100dvh; 
     }
@@ -37,6 +34,7 @@
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); 
       width: 90%; 
       max-width: 400px; 
+      text-align: center;
     }
 
     #chat-box { 
@@ -44,16 +42,14 @@
       background: #ffffff; 
       width: 100%; 
       max-width: 500px;
-      /* Usa tutta l'altezza disponibile da mobile */
       height: 100vh; 
       height: 100dvh; 
       flex-direction: column; 
       padding: 15px;
-      padding-bottom: max(15px, env(safe-area-inset-bottom)); /* Gestisce la barra Home dell'iPhone */
+      padding-bottom: max(15px, env(safe-area-inset-bottom)); 
       padding-top: max(15px, env(safe-area-inset-top));
     }
 
-    /* Layout desktop/tablet: la chat torna a rettangolo centrato se lo schermo è ampio */
     @media (min-width: 600px) {
       #chat-box {
         height: 85vh;
@@ -62,11 +58,38 @@
       }
     }
 
-    h2 { 
-      margin: 0 0 12px 0; 
+    /* HEADER E TITOLO STILIZZATO */
+    .chat-header {
+      text-align: center;
+      padding: 6px 0 14px 0;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #e8f0ec;
+    }
+
+    .chat-title { 
+      margin: 0; 
       color: #1a3c34; 
+      font-size: clamp(1rem, 4vw, 1.25rem); /* Dimensione fluida per mobile e desktop */
       font-weight: 700;
-      font-size: 1.2rem;
+      letter-spacing: -0.3px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .chat-title .brand {
+      color: #2d5a4c;
+      font-weight: 800;
+    }
+
+    .chat-title .badge {
+      background: #e8f0ec;
+      padding: 2px 6px;
+      border-radius: 50%;
+      font-size: 0.9em;
+      display: inline-block;
+      line-height: 1;
     }
 
     .input-group { 
@@ -79,7 +102,7 @@
     #messages { 
       flex: 1; 
       overflow-y: auto; 
-      -webkit-overflow-scrolling: touch; /* Scorrimento fluido su iOS */
+      -webkit-overflow-scrolling: touch; 
       list-style: none; 
       padding: 12px; 
       margin: 0 0 12px 0; 
@@ -115,7 +138,6 @@
       align-items: center; 
     }
 
-    /* FONT-SIZE 16px IMPEDISCE LO ZOOM AUTOMATICO SU SAFARI IPHONE */
     input[type="text"], input[type="password"] { 
       padding: 12px; 
       border: 1.5px solid #c2d6c9; 
@@ -177,7 +199,9 @@
 
   <!-- Accesso -->
   <div id="login-box">
-    <h2>Login</h2>
+    <div class="chat-header" style="border: none; padding: 0 0 10px 0;">
+      <h2 class="chat-title">Accedi alla Chat</h2>
+    </div>
     <div class="input-group">
       <input type="text" id="nickname-input" placeholder="Il tuo Nickname" maxlength="20" onkeypress="handleLoginKey(event)">
       <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="handleLoginKey(event)">
@@ -188,7 +212,13 @@
 
   <!-- Chat -->
   <div id="chat-box">
-    <h2>Chat Privata made by JeJa 🙈​</h2>
+    <div class="chat-header">
+      <h2 class="chat-title">
+        <span>Chat Privata</span>
+        <span class="brand">made by JeJa</span>
+        <span class="badge">🙈</span>
+      </h2>
+    </div>
     <ul id="messages"></ul>
     <div class="input-area">
       <label class="btn-file" title="Invia Immagine">
@@ -230,8 +260,6 @@
       myNickname = nickname;
       document.getElementById('login-box').style.display = 'none';
       document.getElementById('chat-box').style.display = 'flex';
-      
-      // Auto-scroll in fondo all'apertura
       scrollToBottom();
     });
 
