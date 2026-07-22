@@ -92,7 +92,6 @@
       line-height: 1;
     }
 
-    /* BARRA UTENTI ONLINE */
     .online-container {
       display: flex;
       align-items: center;
@@ -168,6 +167,51 @@
       margin-top: 6px; 
       display: block; 
       object-fit: cover;
+    }
+
+    /* AREA INPUT E ANTEPRIMA */
+    .input-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Anteprima Immagine Prima di Inviare */
+    #image-preview-container {
+      display: none;
+      position: relative;
+      align-self: flex-start;
+      background: #e8f0ec;
+      padding: 6px;
+      border-radius: 10px;
+      border: 1px solid #c2d6c9;
+    }
+
+    #image-preview-container img {
+      height: 65px;
+      border-radius: 6px;
+      display: block;
+      object-fit: cover;
+    }
+
+    #remove-image-btn {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: #d93025;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
     .input-area { 
@@ -256,7 +300,6 @@
         <span class="brand">made by JeJa</span>
         <span class="badge">🙈</span>
       </h2>
-      <!-- Lista utenti connessi -->
       <div class="online-container">
         <span class="online-label"><span class="online-indicator"></span> Online (<span id="user-count">0</span>):</span>
         <div id="user-list" style="display: flex; gap: 6px;"></div>
@@ -265,12 +308,20 @@
 
     <ul id="messages"></ul>
 
-    <div class="input-area">
-      <label class="btn-file" title="Invia Immagine">
-        📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="sendImage(this)">
-      </label>
-      <input type="text" id="message-input" placeholder="Scrivi un messaggio..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
-      <button onclick="sendMessage()">Invia</button>
+    <div class="input-wrapper">
+      <!-- Box anteprima immagine prima dell'invio -->
+      <div id="image-preview-container">
+        <img id="image-preview" src="" alt="Anteprima">
+        <button id="remove-image-btn" onclick="clearSelectedImage()">✕</button>
+      </div>
+
+      <div class="input-area">
+        <label class="btn-file" title="Seleziona Immagine">
+          📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleFileSelect(this)">
+        </label>
+        <input type="text" id="message-input" placeholder="Scrivi un messaggio..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()">Invia</button>
+      </div>
     </div>
   </div>
 
@@ -278,6 +329,7 @@
   <script>
     const socket = io();
     let myNickname = '';
+    let selectedBase64Image = null; // Memorizza l'immagine pronta per l'invio
 
     function escapeHTML(str) {
       return str.replace(/[&<>'"]/g, 
@@ -325,7 +377,6 @@
       document.getElementById('error-msg').style.display = 'block';
     });
 
-    // AGGIORNAMENTO LISTA UTENTI IN LIVE
     socket.on('update_users', (users) => {
       const userListEl = document.getElementById('user-list');
       const userCountEl = document.getElementById('user-count');
@@ -346,30 +397,68 @@
       });
     });
 
-    function sendMessage() {
-      const input = document.getElementById('message-input');
-      if (input.value.trim() !== '') {
-        socket.emit('chat message', { type: 'text', content: input.value });
-        input.value = '';
-      }
-    }
-
-    function sendImage(fileInput) {
+    // Gestione della selezione immagine + Compressione per iOS
+    function handleFileSelect(fileInput) {
       const file = fileInput.files[0];
       if (!file) return;
 
-      if (file.size > 20 * 1024 * 1024) {
-        alert('L\'immagine è troppo grande! Scegli un file sotto i 20MB.');
-        fileInput.value = '';
-        return;
-      }
-
       const reader = new FileReader();
       reader.onload = function(evt) {
-        socket.emit('chat message', { type: 'image', content: evt.target.result });
-        fileInput.value = '';
+        const img = new Image();
+        img.onload = function() {
+          // Ridimensiona e comprime l'immagine per non saturare la memoria dell'iPhone
+          const canvas = document.createElement('canvas');
+          const maxDim = 1200; // max larghezza/altezza
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height && width > maxDim) {
+            height *= maxDim / width;
+            width = maxDim;
+          } else if (height > maxDim) {
+            width *= maxDim / height;
+            height = maxDim;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convertiamo in JPEG compresso (qualità 0.7)
+          selectedBase64Image = canvas.toDataURL('image/jpeg', 0.7);
+
+          // Mostra l'anteprima nell'interfaccia
+          document.getElementById('image-preview').src = selectedBase64Image;
+          document.getElementById('image-preview-container').style.display = 'inline-block';
+        };
+        img.src = evt.target.result;
       };
       reader.readAsDataURL(file);
+    }
+
+    function clearSelectedImage() {
+      selectedBase64Image = null;
+      document.getElementById('image-input').value = '';
+      document.getElementById('image-preview').src = '';
+      document.getElementById('image-preview-container').style.display = 'none';
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('message-input');
+      const text = input.value.trim();
+
+      // Invia la foto se presente
+      if (selectedBase64Image) {
+        socket.emit('chat message', { type: 'image', content: selectedBase64Image });
+        clearSelectedImage();
+      }
+
+      // Invia il messaggio di testo se presente
+      if (text !== '') {
+        socket.emit('chat message', { type: 'text', content: text });
+        input.value = '';
+      }
     }
 
     function scrollToBottom() {
