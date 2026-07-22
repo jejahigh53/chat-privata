@@ -85,17 +85,25 @@
       }
     }
 
-    // Invio Immagine
-    function sendImage(fileInput) {
-      const file = fileInput.files[0];
-      if (!file) return;
+   // Invio Immagine con limite aumentato
+function sendImage(fileInput) {
+  const file = fileInput.files[0];
+  if (!file) return;
 
-      // Limite dimensione (es. max 3MB per evitare problemi di prestazioni)
-      if (file.size > 3 * 1024 * 1024) {
-        alert('L\'immagine è troppo grande! Scegli un file sotto i 3MB.');
-        fileInput.value = '';
-        return;
-      }
+  // Limite portato a 20 MB (20 * 1024 * 1024 byte)
+  if (file.size > 20 * 1024 * 1024) {
+    alert('L\'immagine è troppo grande! Scegli un file sotto i 20MB.');
+    fileInput.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    socket.emit('chat message', { type: 'image', content: evt.target.result });
+    fileInput.value = ''; // Reset dell'input
+  };
+  reader.readAsDataURL(file);
+}
 
       const reader = new FileReader();
       reader.onload = function(evt) {
