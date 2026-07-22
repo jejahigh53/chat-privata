@@ -1,82 +1,62 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-
 const app = express();
-const server = http.createServer(app);
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
 
-const io = new Server(server, {
-  maxHttpBufferSize: 3e7 // 30 MB
-});
+app.use(express.static('public')); // O la tua cartella con index.html
 
-// Recupera la password dalle variabili d'ambiente di Render
-const CHAT_PASSWORD = process.env.CHAT_PASSWORD;
-const ROOM_NAME = 'stanza_segreta';
-
-app.use(express.static(__dirname));
-app.use(express.static('public'));
+const PASSWORD_CORRETTA = "la_tua_password"; // Modifica con la tua password
+const connectedUsers = {}; // Salviamo socket.id -> nickname
 
 io.on('connection', (socket) => {
-  let userNickname = '';
-  let isAuthenticated = false;
-  let lastMessageTime = 0; // Per il Rate Limiting
 
-  socket.on('join', (data) => {
-    if (data && data.password === CHAT_PASSWORD) {
-      isAuthenticated = true;
-      userNickname = (data.nickname || 'Anonimo').trim().substring(0, 20); // Taglia nickname troppo lunghi
-      
-      socket.join(ROOM_NAME);
-      socket.emit('login_success', userNickname);
-
-      io.to(ROOM_NAME).emit('chat message', {
-        user: 'Sistema',
-        type: 'system',
-        text: `${userNickname} si è unito alla chat.`
-      });
-    } else {
-      socket.emit('login_error', 'Password errata!');
+  socket.on('join', ({ nickname, password }) => {
+    if (password !== PASSWORD_CORRETTA) {
+      socket.emit('login_error');
+      return;
     }
+
+    // Salviamo l'utente connesso
+    socket.nickname = nickname;
+    connectedUsers[socket.id] = nickname;
+
+    socket.emit('login_success', nickname);
+
+    // Notifica di sistema a tutti
+    io.emit('chat message', { 
+      type: 'system', 
+      text: `${nickname} si è unito alla chat.` 
+    });
+
+    // Invia la lista aggiornata di tutti gli utenti online
+    io.emit('update_users', Object.values(connectedUsers));
   });
 
-  socket.on('chat message', (msgData) => {
-    if (!isAuthenticated || !userNickname) return;
-
-    // Anti-Spam (Rate Limit): Almeno 500ms tra un messaggio e l'altro
-    const now = Date.now();
-    if (now - lastMessageTime < 500) {
-      return; 
-    }
-    lastMessageTime = now;
-
-    if (!msgData || !msgData.content) return;
-
-    // Se è un messaggio di testo, limita la lunghezza massima a 1000 caratteri
-    let content = msgData.content;
-    if (msgData.type === 'text') {
-      content = content.trim().substring(0, 1000);
-      if (content.length === 0) return;
-    }
-
-    io.to(ROOM_NAME).emit('chat message', {
-      user: userNickname,
-      type: msgData.type,
-      content: content
+  socket.on('chat message', (data) => {
+    if (!socket.nickname) return;
+    io.emit('chat message', {
+      user: socket.nickname,
+      type: data.type,
+      content: data.content
     });
   });
 
   socket.on('disconnect', () => {
-    if (isAuthenticated && userNickname) {
-      io.to(ROOM_NAME).emit('chat message', {
-        user: 'Sistema',
-        type: 'system',
-        text: `${userNickname} ha lasciato la chat.`
+    if (socket.nickname) {
+      delete connectedUsers[socket.id];
+
+      // Notifica di disconnessione
+      io.emit('chat message', { 
+        type: 'system', 
+        text: `${socket.nickname} ha lasciato la chat.` 
       });
+
+      // Aggiorna la lista utenti per tutti i rimasti
+      io.emit('update_users', Object.values(connectedUsers));
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server attivo sulla porta ${PORT}`);
+http.listen(3000, () => {
+  console.log('Server avviato sulla porta 3000');
 });
