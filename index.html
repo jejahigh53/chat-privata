@@ -12,34 +12,40 @@
     h2 { margin-top: 0; color: #1c1e21; }
     .input-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 15px; }
     #messages { flex: 1; overflow-y: auto; list-style: none; padding: 10px; margin: 0 0 15px 0; border: 1px solid #e4e6eb; border-radius: 8px; background: #fafafa; }
-    #messages li { margin-bottom: 10px; word-break: break-word; }
-    .input-area { display: flex; gap: 8px; }
-    input { padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; outline: none; width: 100%; }
+    #messages li { margin-bottom: 12px; word-break: break-word; }
+    .chat-img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; display: block; }
+    .input-area { display: flex; gap: 8px; align-items: center; }
+    input[type="text"], input[type="password"] { padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; outline: none; width: 100%; }
     input:focus { border-color: #0084ff; }
-    button { padding: 12px 18px; background: #0084ff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; width: 100%; }
-    .input-area button { width: auto; }
+    button { padding: 12px 18px; background: #0084ff; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+    .btn-file { background: #e4e6eb; color: #333; padding: 12px 14px; border-radius: 6px; cursor: pointer; font-size: 16px; }
+    .btn-file:hover { background: #d8dadf; }
     button:hover { background: #006bce; }
     #error-msg { color: #d93025; font-size: 14px; margin-top: -5px; display: none; }
   </style>
 </head>
 <body>
 
-  <!-- Schermata di Accesso -->
+  <!-- Accesso -->
   <div id="login-box">
     <h2>Accesso Chat Privata</h2>
     <div class="input-group">
       <input type="text" id="nickname-input" placeholder="Il tuo Nickname">
       <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="if(event.key==='Enter') enterChat()">
       <div id="error-msg">Password errata! Riprova.</div>
-      <button onclick="enterChat()">Entra</button>
+      <button onclick="enterChat()" style="width: 100%;">Entra</button>
     </div>
   </div>
 
-  <!-- Finestra Chat -->
+  <!-- Chat -->
   <div id="chat-box">
     <h2>Stanza Privata</h2>
     <ul id="messages"></ul>
     <div class="input-area">
+      <!-- Pulsante allegato immagine -->
+      <label class="btn-file" title="Invia Immagine">
+        📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="sendImage(this)">
+      </label>
       <input type="text" id="message-input" placeholder="Scrivi un messaggio..." onkeypress="if(event.key==='Enter') sendMessage()">
       <button onclick="sendMessage()">Invia</button>
     </div>
@@ -53,47 +59,68 @@
     function enterChat() {
       const nickname = document.getElementById('nickname-input').value.trim();
       const password = document.getElementById('password-input').value.trim();
-      const errorMsg = document.getElementById('error-msg');
 
       if (!nickname) {
         alert('Inserisci un nickname!');
         return;
       }
-
-      // Invia la richiesta di accesso al server
       socket.emit('join', { nickname, password });
     }
 
-    // Risposta dal server se l'accesso è riuscito
     socket.on('login_success', (nickname) => {
       myNickname = nickname;
       document.getElementById('login-box').style.display = 'none';
       document.getElementById('chat-box').style.display = 'flex';
     });
 
-    // Risposta dal server se la password è errata
-    socket.on('login_error', (msg) => {
-      const errorMsg = document.getElementById('error-msg');
-      errorMsg.style.display = 'block';
+    socket.on('login_error', () => {
+      document.getElementById('error-msg').style.display = 'block';
     });
 
     function sendMessage() {
       const input = document.getElementById('message-input');
       if (input.value.trim() !== '') {
-        socket.emit('chat message', input.value);
+        socket.emit('chat message', { type: 'text', content: input.value });
         input.value = '';
       }
     }
 
+    // Invio Immagine
+    function sendImage(fileInput) {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      // Limite dimensione (es. max 3MB per evitare problemi di prestazioni)
+      if (file.size > 3 * 1024 * 1024) {
+        alert('L\'immagine è troppo grande! Scegli un file sotto i 3MB.');
+        fileInput.value = '';
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        socket.emit('chat message', { type: 'image', content: evt.target.result });
+        fileInput.value = ''; // Reset dell'input
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Ricezione Messaggi e Immagini
     socket.on('chat message', (data) => {
       const li = document.createElement('li');
+
       if (data.user === 'Sistema') {
         li.style.color = '#888';
         li.style.fontStyle = 'italic';
         li.textContent = data.text;
       } else {
-        li.innerHTML = `<strong>${data.user}:</strong> ${data.text}`;
+        if (data.type === 'image') {
+          li.innerHTML = `<strong>${data.user}:</strong><br><img src="${data.content}" class="chat-img" />`;
+        } else {
+          li.innerHTML = `<strong>${data.user}:</strong> ${data.content}`;
+        }
       }
+
       document.getElementById('messages').appendChild(li);
       document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
     });
