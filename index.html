@@ -325,7 +325,6 @@
       </div>
 
       <div class="input-area">
-        <!-- Accetta sia immagini che video -->
         <input type="file" id="media-input" accept="image/*,video/*" hidden onchange="handleFileSelect(this)">
         <label for="media-input" class="btn-file" title="Seleziona Foto o Video">📎</label>
         
@@ -343,7 +342,7 @@
     
     let selectedFile = null;
     let selectedFileType = null; // 'image' o 'video'
-    let selectedBase64Image = null; // Usato per le foto leggere
+    let selectedBase64Image = null;
 
     function escapeHTML(str) {
       return str.replace(/[&<>'"]/g, 
@@ -364,7 +363,16 @@
       };
     }
 
-    /* --- HELPER CONVERSIONE SAFE --- */
+    /* --- HELPER LETTURA E CONVERSIONE SAFE PER MOBILE --- */
+
+    function readFileAsArrayBuffer(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = (error) => reject(error);
+        reader.readAsArrayBuffer(file);
+      });
+    }
 
     function arrayBufferToBase64(buffer) {
       let binary = '';
@@ -415,7 +423,6 @@
       );
     }
 
-    // Cifratura testo / stringhe Base64
     async function encryptData(text) {
       const enc = new TextEncoder();
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
@@ -431,7 +438,6 @@
       };
     }
 
-    // Decifratura testo / stringhe Base64
     async function decryptData(encryptedObj) {
       try {
         const iv = base64ToUint8Array(encryptedObj.iv);
@@ -450,7 +456,6 @@
       }
     }
 
-    // Cifratura diretta di ArrayBuffer (Usato per i VIDEO)
     async function encryptArrayBuffer(arrayBuffer) {
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
       const encryptedBuffer = await window.crypto.subtle.encrypt(
@@ -465,7 +470,6 @@
       };
     }
 
-    // Decifratura diretta di ArrayBuffer (Usato per i VIDEO)
     async function decryptArrayBuffer(encryptedArrayBuffer, ivBase64) {
       const iv = base64ToUint8Array(ivBase64);
       return await window.crypto.subtle.decrypt(
@@ -527,7 +531,7 @@
       });
     });
 
-    /* --- GESTIONE FOTO E VIDEO --- */
+    /* --- GESTIONE SELEZIONE MEDIA (MOBILE SAFE) --- */
 
     function handleFileSelect(fileInput) {
       const file = fileInput.files[0];
@@ -569,10 +573,9 @@
         };
         reader.readAsDataURL(file);
 
-      } else if (file.type.startsWith('video/')) {
-        // Controllo dimensione video (max 50 MB)
-        if (file.size > 50 * 1024 * 1024) {
-          alert('Il video supera il limite massimo di 50 MB.');
+      } else if (file.type.startsWith('video/') || file.name.match(/\.(mp4|mov|avi|webm)$/i)) {
+        if (file.size > 40 * 1024 * 1024) {
+          alert('Il video supera il limite di 40 MB.');
           fileInput.value = '';
           return;
         }
@@ -606,7 +609,7 @@
       document.getElementById('media-preview-container').style.display = 'none';
     }
 
-    /* --- INVIO MESSAGGI --- */
+    /* --- INVIO MESSAGGI COMPATIBILE MOBILE --- */
 
     async function sendMessage() {
       const input = document.getElementById('message-input');
@@ -620,24 +623,25 @@
       sendBtn.textContent = '...';
 
       try {
-        // 1. Invio Foto
+        // 1. Invio Immagine
         if (selectedFileType === 'image' && selectedBase64Image) {
           const encryptedImg = await encryptData(selectedBase64Image);
           socket.emit('chat message', { type: 'image', content: encryptedImg });
           clearSelectedMedia();
         }
 
-        // 2. Invio Video (Opzione B: Cifratura locale + Upload file statico)
+        // 2. Invio Video (Mobile Safe)
         if (selectedFileType === 'video' && selectedFile) {
           sendBtn.textContent = 'Cifratura...';
           
-          // Legge il file in memoria come ArrayBuffer
-          const arrayBuffer = await selectedFile.arrayBuffer();
-          // Cifra il file
+          // Lettura con FileReader compatibile iOS / Android
+          const arrayBuffer = await readFileAsArrayBuffer(selectedFile);
+          
+          // Cifratura Web Crypto
           const { iv, encryptedBlob } = await encryptArrayBuffer(arrayBuffer);
 
           sendBtn.textContent = 'Caricamento...';
-          // Prepara la richiesta FormData per caricare il file cifrato sul server
+          
           const formData = new FormData();
           formData.append('encryptedFile', encryptedBlob, 'video.enc');
 
@@ -650,13 +654,12 @@
 
           const data = await response.json();
           
-          // Invia in chat Socket.IO solo l'URL del file cifrato e l'IV per decifrarlo
           socket.emit('chat message', {
             type: 'video',
             content: {
               fileUrl: data.fileUrl,
               iv: iv,
-              mimeType: selectedFile.type
+              mimeType: selectedFile.type || 'video/mp4'
             }
           });
 
@@ -671,7 +674,7 @@
         }
       } catch (err) {
         console.error("Errore durante l'invio:", err);
-        alert("Errore durante l'invio del file. Riprova.");
+        alert("Errore durante l'invio del file da mobile. Riprova con un video più breve.");
       } finally {
         sendBtn.disabled = false;
         sendBtn.textContent = originalText;
@@ -683,7 +686,7 @@
       msgList.scrollTop = msgList.scrollHeight;
     }
 
-    /* --- RICEZIONE MESSAGGI --- */
+    /* --- RICEZIONE E DECIFRATURA MESSAGGI --- */
 
     socket.on('chat message', async (data) => {
       const li = document.createElement('li');
@@ -711,22 +714,17 @@
           }
 
         } else if (data.type === 'video') {
-          // Ricezione e decifratura Video
-          li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><span class="video-loading" style="font-size: 13px; color: #5a7065;">Caricamento e decifratura video...</span>`;
+          li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><span style="font-size: 13px; color: #5a7065;">Caricamento e decifratura video...</span>`;
 
           try {
-            // Scarica il file video cifrato dal server
             const res = await fetch(data.content.fileUrl);
             const encryptedArrayBuffer = await res.arrayBuffer();
 
-            // Decifra l'ArrayBuffer in memoria
             const decryptedArrayBuffer = await decryptArrayBuffer(encryptedArrayBuffer, data.content.iv);
 
-            // Crea un Blob e genera un URL locale temporaneo
             const videoBlob = new Blob([decryptedArrayBuffer], { type: data.content.mimeType || 'video/mp4' });
             const videoObjectUrl = URL.createObjectURL(videoBlob);
 
-            // Inserisce il player video HTML5
             li.innerHTML = `
               <strong style="color: ${userColors.text};">${safeUser}:</strong><br>
               <video src="${videoObjectUrl}" class="chat-video" controls playsinline></video>
