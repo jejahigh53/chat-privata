@@ -1,86 +1,97 @@
 const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const http = require('http');
+const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 
-// Password gestita tramite variabile d'ambiente (es. impostata su Render)
-const PASSWORD_CORRETTA = process.env.CHAT_PASSWORD;
-
-const connectedUsers = {};
-
-// Serviamo il file index.html posizionato nella stessa cartella di server.js
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  maxHttpBufferSize: 1e8 // 100 MB per evitare limiti di connessione
 });
 
-// Permette di servire eventuali altri file statici presenti nella radice
+const PORT = process.env.PORT || 3000;
+const ACCESS_PASSWORD = process.env.CHAT_PASSWORD || "1234";
+
+// Assicurati che la cartella uploads esista
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+// Configurazione di Multer per salvare i file cifrati
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '.enc'); // Salva con estensione .enc (encrypted)
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 50 * 1024 * 1024 } // Limite massimo 50MB per video
+});
+
+// Middleware
 app.use(express.static(__dirname));
+app.use('/uploads', express.static(uploadDir)); // Serve la cartella uploads
+
+// Rotta POST per caricare il video cifrato
+app.post('/upload', upload.single('encryptedFile'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Nessun file caricato.' });
+  }
+  // Restituisce l'URL pubblico del file cifrato
+  res.json({ fileUrl: `/uploads/${req.file.filename}` });
+});
+
+// Gestione utenti Socket.IO
+const users = {};
 
 io.on('connection', (socket) => {
-
-socket.on('join', ({ nickname, password }) => {
-    // 1. Pulisce il nickname da spazi bianchi inutili
-    const cleanNickname = nickname ? nickname.trim() : '';
-
-    // 2. Controllo password d'accesso e nickname vuoto
-    if (!cleanNickname || password !== PASSWORD_CORRETTA) {
+  socket.on('join', ({ nickname, password }) => {
+    if (password !== ACCESS_PASSWORD) {
       socket.emit('login_error');
       return;
     }
 
-    // 3. Controllo se il nickname è già stato preso da un altro utente online
-    const isNameTaken = Object.values(connectedUsers).some(
-      u => u.toLowerCase() === cleanNickname.toLowerCase()
-    );
-
-    if (isNameTaken) {
-      socket.emit('login_error'); // Rifiuta il login se il nome esiste già
-      return;
-    }
-
-    // Se tutto è ok, salva l'utente
-    socket.nickname = cleanNickname;
-    connectedUsers[socket.id] = cleanNickname;
-
-    socket.emit('login_success', cleanNickname);
-
-    // Notifica ingresso
-    io.emit('chat message', { 
-      type: 'system', 
-      text: `${cleanNickname} si è unito alla chat.` 
+    users[socket.id] = nickname;
+    socket.emit('login_success', nickname);
+    
+    io.emit('update_users', Object.values(users));
+    io.emit('chat message', {
+      type: 'system',
+      text: `${nickname} si è unito alla chat.`
     });
-
-    // Invia la lista aggiornata degli utenti online
-    io.emit('update_users', Object.values(connectedUsers));
   });
 
-  socket.on('chat message', (data) => {
-    if (!socket.nickname) return;
-    io.emit('chat message', {
-      user: socket.nickname,
-      type: data.type,
-      content: data.content
-    });
+  socket.on('chat message', (msgData) => {
+    const nickname = users[socket.id];
+    if (nickname) {
+      io.emit('chat message', {
+        user: nickname,
+        ...msgData
+      });
+    }
   });
 
   socket.on('disconnect', () => {
-    if (socket.nickname) {
-      delete connectedUsers[socket.id];
-
-      // Notifica uscita
-      io.emit('chat message', { 
-        type: 'system', 
-        text: `${socket.nickname} ha lasciato la chat.` 
+    const nickname = users[socket.id];
+    if (nickname) {
+      delete users[socket.id];
+      io.emit('update_users', Object.values(users));
+      io.emit('chat message', {
+        type: 'system',
+        text: `${nickname} ha lasciato la chat.`
       });
-
-      // Aggiorna la lista utenti per i rimasti
-      io.emit('update_users', Object.values(connectedUsers));
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Server avviato sulla porta ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Server attivo sulla porta ${PORT}`);
 });
