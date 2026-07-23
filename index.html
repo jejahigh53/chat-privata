@@ -261,6 +261,7 @@
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+      user-select: none;
     }
 
     .btn-file:active { 
@@ -288,7 +289,7 @@
       <!-- Passphrase B: Usata SOLO nel browser per cifrare/decifrare -->
       <input type="password" id="passphrase-input" placeholder="Password per crittografia" onkeypress="handleLoginKey(event)">
       
-      <div id="error-msg">Password d'accesso errata! Riprova.</div>
+      <div id="error-msg">Password d'accesso errata o Nickname non valido!</div>
       <button onclick="enterChat()" style="width: 100%;">Entra</button>
     </div>
   </div>
@@ -316,9 +317,10 @@
       </div>
 
       <div class="input-area">
-        <label class="btn-file" title="Seleziona Immagine">
-          📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleFileSelect(this)">
-        </label>
+        <!-- Input file separato e gestito tramite l'attributo hidden (massima compatibilità mobile) -->
+        <input type="file" id="image-input" accept="image/*" hidden onchange="handleFileSelect(this)">
+        <label for="image-input" class="btn-file" title="Seleziona Immagine">📎</label>
+        
         <input type="text" id="message-input" placeholder="Scrivi un messaggio sicuro..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
         <button onclick="sendMessage()">Invia</button>
       </div>
@@ -353,7 +355,6 @@
 
     /* --- FUNZIONI CRITTOGRAFICHE (WEB CRYPTO API) --- */
 
-    // Deriva la chiave usando la PASSPHRASE B
     async function deriveKey(passphrase) {
       const enc = new TextEncoder();
       const keyMaterial = await window.crypto.subtle.importKey(
@@ -430,10 +431,7 @@
         return;
       }
 
-      // Deriviamo la chiave di cifratura DALLA PASSPHRASE B (rimane solo nel browser)
       cryptoKey = await deriveKey(passphrase);
-
-      // Inviamo al server SOLO la Password A per l'autenticazione
       socket.emit('join', { nickname, password });
     }
 
@@ -467,6 +465,8 @@
         userListEl.appendChild(badge);
       });
     });
+
+    /* --- GESTIONE ALLEGATI FOTO --- */
 
     function handleFileSelect(fileInput) {
       const file = fileInput.files[0];
@@ -506,7 +506,8 @@
 
     function clearSelectedImage() {
       selectedBase64Image = null;
-      document.getElementById('image-input').value = '';
+      const fileInput = document.getElementById('image-input');
+      if (fileInput) fileInput.value = ''; // Reset per consentire la ricarica della stessa immagine
       document.getElementById('image-preview').src = '';
       document.getElementById('image-preview-container').style.display = 'none';
     }
@@ -515,12 +516,14 @@
       const input = document.getElementById('message-input');
       const text = input.value.trim();
 
+      // Invia immagine se presente
       if (selectedBase64Image) {
         const encryptedImg = await encryptData(selectedBase64Image);
         socket.emit('chat message', { type: 'image', content: encryptedImg });
         clearSelectedImage();
       }
 
+      // Invia testo se presente
       if (text !== '') {
         const encryptedText = await encryptData(text);
         socket.emit('chat message', { type: 'text', content: encryptedText });
