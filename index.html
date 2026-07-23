@@ -159,13 +159,17 @@
       line-height: 1.4;
     }
 
-    .chat-img { 
+    .chat-img, .chat-video { 
       max-width: 100%; 
-      max-height: 220px; 
+      max-height: 250px; 
       border-radius: 8px; 
       margin-top: 6px; 
       display: block; 
       object-fit: cover;
+    }
+
+    .chat-video {
+      background: #000;
     }
 
     .input-wrapper {
@@ -174,7 +178,7 @@
       gap: 8px;
     }
 
-    #image-preview-container {
+    #media-preview-container {
       display: none;
       position: relative;
       align-self: flex-start;
@@ -184,14 +188,14 @@
       border: 1px solid #c2d6c9;
     }
 
-    #image-preview-container img {
+    #media-preview-container img, #media-preview-container video {
       height: 65px;
       border-radius: 6px;
       display: block;
       object-fit: cover;
     }
 
-    #remove-image-btn {
+    #remove-media-btn {
       position: absolute;
       top: -6px;
       right: -6px;
@@ -289,9 +293,7 @@
     </div>
     <div class="input-group">
       <input type="text" id="nickname-input" placeholder="Il tuo Nickname" maxlength="20" onkeypress="handleLoginKey(event)">
-      <!-- Password A: Inviata al server per l'autenticazione -->
       <input type="password" id="password-input" placeholder="Password d'accesso" onkeypress="handleLoginKey(event)">
-      <!-- Passphrase B: Usata SOLO nel browser per cifrare/decifrare -->
       <input type="password" id="passphrase-input" placeholder="Password per crittografia" onkeypress="handleLoginKey(event)">
       
       <div id="error-msg">Password d'accesso errata o Nickname non valido!</div>
@@ -316,17 +318,19 @@
     <ul id="messages"></ul>
 
     <div class="input-wrapper">
-      <div id="image-preview-container">
-        <img id="image-preview" src="" alt="Anteprima">
-        <button id="remove-image-btn" onclick="clearSelectedImage()">✕</button>
+      <div id="media-preview-container">
+        <img id="img-preview" src="" style="display:none;" alt="Anteprima">
+        <video id="video-preview" style="display:none;" muted autoplay loop></video>
+        <button id="remove-media-btn" onclick="clearSelectedMedia()">✕</button>
       </div>
 
       <div class="input-area">
-        <input type="file" id="image-input" accept="image/*" hidden onchange="handleFileSelect(this)">
-        <label for="image-input" class="btn-file" title="Seleziona Immagine">📎</label>
+        <!-- Accetta sia immagini che video -->
+        <input type="file" id="media-input" accept="image/*,video/*" hidden onchange="handleFileSelect(this)">
+        <label for="media-input" class="btn-file" title="Seleziona Foto o Video">📎</label>
         
         <input type="text" id="message-input" placeholder="Scrivi un messaggio sicuro..." maxlength="1000" onkeypress="if(event.key==='Enter') sendMessage()">
-        <button onclick="sendMessage()">Invia</button>
+        <button id="send-btn" onclick="sendMessage()">Invia</button>
       </div>
     </div>
   </div>
@@ -335,8 +339,11 @@
   <script>
     const socket = io();
     let myNickname = '';
-    let cryptoKey = null; // Chiave generata DALLA PASSPHRASE B
-    let selectedBase64Image = null;
+    let cryptoKey = null;
+    
+    let selectedFile = null;
+    let selectedFileType = null; // 'image' o 'video'
+    let selectedBase64Image = null; // Usato per le foto leggere
 
     function escapeHTML(str) {
       return str.replace(/[&<>'"]/g, 
@@ -357,13 +364,13 @@
       };
     }
 
-    /* --- HELPER PER CONVERSIONE SAFE SU MOBILE (Evita Stack Overflow) --- */
+    /* --- HELPER CONVERSIONE SAFE --- */
 
     function arrayBufferToBase64(buffer) {
       let binary = '';
       const bytes = new Uint8Array(buffer);
       const len = bytes.byteLength;
-      const chunkSize = 0x8000; // 32KB alla volta
+      const chunkSize = 0x8000; 
       for (let i = 0; i < len; i += chunkSize) {
         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
       }
@@ -408,6 +415,7 @@
       );
     }
 
+    // Cifratura testo / stringhe Base64
     async function encryptData(text) {
       const enc = new TextEncoder();
       const iv = window.crypto.getRandomValues(new Uint8Array(12));
@@ -423,6 +431,7 @@
       };
     }
 
+    // Decifratura testo / stringhe Base64
     async function decryptData(encryptedObj) {
       try {
         const iv = base64ToUint8Array(encryptedObj.iv);
@@ -441,7 +450,32 @@
       }
     }
 
-    /* --- GESTIONE LOGIN & CHAT --- */
+    // Cifratura diretta di ArrayBuffer (Usato per i VIDEO)
+    async function encryptArrayBuffer(arrayBuffer) {
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encryptedBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: iv },
+        cryptoKey,
+        arrayBuffer
+      );
+
+      return {
+        iv: arrayBufferToBase64(iv),
+        encryptedBlob: new Blob([encryptedBuffer], { type: 'application/octet-stream' })
+      };
+    }
+
+    // Decifratura diretta di ArrayBuffer (Usato per i VIDEO)
+    async function decryptArrayBuffer(encryptedArrayBuffer, ivBase64) {
+      const iv = base64ToUint8Array(ivBase64);
+      return await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        cryptoKey,
+        encryptedArrayBuffer
+      );
+    }
+
+    /* --- LOGIN E CHAT --- */
 
     function handleLoginKey(e) {
       if (e.key === 'Enter') enterChat();
@@ -454,7 +488,7 @@
       document.getElementById('error-msg').style.display = 'none';
 
       if (!nickname || !password || !passphrase) {
-        alert('Compila tutti i campi: Nickname, Password d\'accesso e Passphrase segreta!');
+        alert('Compila tutti i campi!');
         return;
       }
 
@@ -493,71 +527,143 @@
       });
     });
 
-    /* --- GESTIONE ALLEGATI FOTO --- */
+    /* --- GESTIONE FOTO E VIDEO --- */
 
     function handleFileSelect(fileInput) {
       const file = fileInput.files[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        const img = new Image();
-        img.onload = function() {
-          const canvas = document.createElement('canvas');
-          const maxDim = 1200;
-          let width = img.width;
-          let height = img.height;
+      clearSelectedMedia();
 
-          if (width > height && width > maxDim) {
-            height *= maxDim / width;
-            width = maxDim;
-          } else if (height > maxDim) {
-            width *= maxDim / height;
-            height = maxDim;
-          }
+      if (file.type.startsWith('image/')) {
+        selectedFileType = 'image';
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const img = new Image();
+          img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1200;
+            let width = img.width;
+            let height = img.height;
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, width, height);
+            if (width > height && width > maxDim) {
+              height *= maxDim / width;
+              width = maxDim;
+            } else if (height > maxDim) {
+              width *= maxDim / height;
+              height = maxDim;
+            }
 
-          selectedBase64Image = canvas.toDataURL('image/jpeg', 0.7);
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
 
-          document.getElementById('image-preview').src = selectedBase64Image;
-          document.getElementById('image-preview-container').style.display = 'inline-block';
+            selectedBase64Image = canvas.toDataURL('image/jpeg', 0.7);
+
+            document.getElementById('img-preview').src = selectedBase64Image;
+            document.getElementById('img-preview').style.display = 'block';
+            document.getElementById('media-preview-container').style.display = 'inline-block';
+          };
+          img.src = evt.target.result;
         };
-        img.src = evt.target.result;
-      };
-      reader.readAsDataURL(file);
+        reader.readAsDataURL(file);
+
+      } else if (file.type.startsWith('video/')) {
+        // Controllo dimensione video (max 50 MB)
+        if (file.size > 50 * 1024 * 1024) {
+          alert('Il video supera il limite massimo di 50 MB.');
+          fileInput.value = '';
+          return;
+        }
+
+        selectedFileType = 'video';
+        selectedFile = file;
+
+        const videoPreview = document.getElementById('video-preview');
+        videoPreview.src = URL.createObjectURL(file);
+        videoPreview.style.display = 'block';
+        document.getElementById('media-preview-container').style.display = 'inline-block';
+      }
     }
 
-    function clearSelectedImage() {
+    function clearSelectedMedia() {
+      selectedFileType = null;
+      selectedFile = null;
       selectedBase64Image = null;
-      const fileInput = document.getElementById('image-input');
+
+      const fileInput = document.getElementById('media-input');
       if (fileInput) fileInput.value = '';
-      document.getElementById('image-preview').src = '';
-      document.getElementById('image-preview-container').style.display = 'none';
+
+      const imgPrev = document.getElementById('img-preview');
+      imgPrev.src = '';
+      imgPrev.style.display = 'none';
+
+      const videoPrev = document.getElementById('video-preview');
+      videoPrev.src = '';
+      videoPrev.style.display = 'none';
+
+      document.getElementById('media-preview-container').style.display = 'none';
     }
+
+    /* --- INVIO MESSAGGI --- */
 
     async function sendMessage() {
       const input = document.getElementById('message-input');
-      const sendBtn = document.querySelector('.input-area button');
+      const sendBtn = document.getElementById('send-btn');
       const text = input.value.trim();
 
-      if (!selectedBase64Image && text === '') return;
+      if (!selectedFileType && text === '') return;
 
-      // Disabilita il pulsante per dare feedback visivo su mobile
       sendBtn.disabled = true;
       const originalText = sendBtn.textContent;
       sendBtn.textContent = '...';
 
       try {
-        if (selectedBase64Image) {
+        // 1. Invio Foto
+        if (selectedFileType === 'image' && selectedBase64Image) {
           const encryptedImg = await encryptData(selectedBase64Image);
           socket.emit('chat message', { type: 'image', content: encryptedImg });
-          clearSelectedImage();
+          clearSelectedMedia();
         }
 
+        // 2. Invio Video (Opzione B: Cifratura locale + Upload file statico)
+        if (selectedFileType === 'video' && selectedFile) {
+          sendBtn.textContent = 'Cifratura...';
+          
+          // Legge il file in memoria come ArrayBuffer
+          const arrayBuffer = await selectedFile.arrayBuffer();
+          // Cifra il file
+          const { iv, encryptedBlob } = await encryptArrayBuffer(arrayBuffer);
+
+          sendBtn.textContent = 'Caricamento...';
+          // Prepara la richiesta FormData per caricare il file cifrato sul server
+          const formData = new FormData();
+          formData.append('encryptedFile', encryptedBlob, 'video.enc');
+
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!response.ok) throw new Error("Upload fallito");
+
+          const data = await response.json();
+          
+          // Invia in chat Socket.IO solo l'URL del file cifrato e l'IV per decifrarlo
+          socket.emit('chat message', {
+            type: 'video',
+            content: {
+              fileUrl: data.fileUrl,
+              iv: iv,
+              mimeType: selectedFile.type
+            }
+          });
+
+          clearSelectedMedia();
+        }
+
+        // 3. Invio Testo
         if (text !== '') {
           const encryptedText = await encryptData(text);
           socket.emit('chat message', { type: 'text', content: encryptedText });
@@ -565,7 +671,7 @@
         }
       } catch (err) {
         console.error("Errore durante l'invio:", err);
-        alert("Errore durante l'invio dell'allegato. Riprova.");
+        alert("Errore durante l'invio del file. Riprova.");
       } finally {
         sendBtn.disabled = false;
         sendBtn.textContent = originalText;
@@ -576,6 +682,8 @@
       const msgList = document.getElementById('messages');
       msgList.scrollTop = msgList.scrollHeight;
     }
+
+    /* --- RICEZIONE MESSAGGI --- */
 
     socket.on('chat message', async (data) => {
       const li = document.createElement('li');
@@ -599,8 +707,35 @@
           if (decryptedBase64 && decryptedBase64.startsWith('data:image/')) {
             li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><img src="${decryptedBase64}" class="chat-img" />`;
           } else {
-            li.textContent = `${data.user} ha inviato un allegato non decifrabile.`;
+            li.textContent = `${data.user} ha inviato un'immagine non decifrabile.`;
           }
+
+        } else if (data.type === 'video') {
+          // Ricezione e decifratura Video
+          li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><span class="video-loading" style="font-size: 13px; color: #5a7065;">Caricamento e decifratura video...</span>`;
+
+          try {
+            // Scarica il file video cifrato dal server
+            const res = await fetch(data.content.fileUrl);
+            const encryptedArrayBuffer = await res.arrayBuffer();
+
+            // Decifra l'ArrayBuffer in memoria
+            const decryptedArrayBuffer = await decryptArrayBuffer(encryptedArrayBuffer, data.content.iv);
+
+            // Crea un Blob e genera un URL locale temporaneo
+            const videoBlob = new Blob([decryptedArrayBuffer], { type: data.content.mimeType || 'video/mp4' });
+            const videoObjectUrl = URL.createObjectURL(videoBlob);
+
+            // Inserisce il player video HTML5
+            li.innerHTML = `
+              <strong style="color: ${userColors.text};">${safeUser}:</strong><br>
+              <video src="${videoObjectUrl}" class="chat-video" controls playsinline></video>
+            `;
+          } catch (err) {
+            console.error("Errore decifratura video:", err);
+            li.innerHTML = `<strong style="color: ${userColors.text};">${safeUser}:</strong><br><em>Impossibile decifrare il video.</em>`;
+          }
+
         } else {
           const decryptedText = await decryptData(data.content);
           const safeContent = escapeHTML(decryptedText);
