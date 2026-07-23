@@ -19,22 +19,36 @@ app.use(express.static(__dirname));
 
 io.on('connection', (socket) => {
 
-  socket.on('join', ({ nickname, password }) => {
-    // Controllo della password dinamica
-    if (password !== PASSWORD_CORRETTA) {
+socket.on('join', ({ nickname, password }) => {
+    // 1. Pulisce il nickname da spazi bianchi inutili
+    const cleanNickname = nickname ? nickname.trim() : '';
+
+    // 2. Controllo password d'accesso e nickname vuoto
+    if (!cleanNickname || password !== PASSWORD_CORRETTA) {
       socket.emit('login_error');
       return;
     }
 
-    socket.nickname = nickname;
-    connectedUsers[socket.id] = nickname;
+    // 3. Controllo se il nickname è già stato preso da un altro utente online
+    const isNameTaken = Object.values(connectedUsers).some(
+      u => u.toLowerCase() === cleanNickname.toLowerCase()
+    );
 
-    socket.emit('login_success', nickname);
+    if (isNameTaken) {
+      socket.emit('login_error'); // Rifiuta il login se il nome esiste già
+      return;
+    }
+
+    // Se tutto è ok, salva l'utente
+    socket.nickname = cleanNickname;
+    connectedUsers[socket.id] = cleanNickname;
+
+    socket.emit('login_success', cleanNickname);
 
     // Notifica ingresso
     io.emit('chat message', { 
       type: 'system', 
-      text: `${nickname} si è unito alla chat.` 
+      text: `${cleanNickname} si è unito alla chat.` 
     });
 
     // Invia la lista aggiornata degli utenti online
